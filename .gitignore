@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+test-output.txt
+test-errors.txt
+# Database backups (scripts/backup.js): they contain personal data, never commit them (D-061)
+backups/
+.idea/
+.vscode/
+.DS_Store
+
+# Leftover test output files in the project root (not part of the project)
+/.*.txt
