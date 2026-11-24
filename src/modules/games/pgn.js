@@ -28,8 +28,14 @@ function buildPgn(game, result, reason) {
     header('BlackElo', game.blackRating),
     header('TimeControl', `${game.timeControl.baseMs / 1000}+${game.timeControl.incrementMs / 1000}`),
     header('Termination', reason || 'unterminated'),
-    '',
   ];
+  if (game.variant === 'chess960') {
+    lines.push(header('Variant', 'Chess960'));
+    if (game.startFen) lines.push(header('SetUp', '1'), header('FEN', game.startFen));
+  } else if (game.variant === 'dice') {
+    lines.push(header('Variant', 'Dice Chess'));
+  }
+  lines.push('');
   const parts = [];
   game.moves.forEach((m, i) => {
     if (i % 2 === 0) parts.push(`${i / 2 + 1}.`);

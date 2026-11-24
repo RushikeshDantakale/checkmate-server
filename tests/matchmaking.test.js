@@ -88,9 +88,21 @@ test('a player who disconnects while queued is removed from the queue', async ()
   await g.waitFor(async () => (await MatchmakingEntry.countDocuments({ userId: a.user.id })) === 0);
 });
 
+test('time controls are dynamic: any id inside the limits is accepted and normalised (D-063)', async () => {
+  const a = await player();
+  const joined = await g.call(a.socket, 'queue.join', { timeControl: '05+03', rated: false }, 'queue.joined');
+  assert.equal(joined.timeControlId, '5+3');
+  await g.call(a.socket, 'queue.leave', {}, 'queue.left');
+  const odd = await g.call(a.socket, 'queue.join', { timeControl: '2+1', rated: false }, 'queue.joined');
+  assert.equal(odd.timeControlId, '2+1');
+  await g.call(a.socket, 'queue.leave', {}, 'queue.left');
+});
+
 test('unknown time controls and bad payloads are rejected', async () => {
   const a = await player();
-  assert.equal(await g.errorOf(a.socket, 'queue.join', { timeControl: '99+99' }), 'INVALID_TIME_CONTROL');
+  for (const bad of ['abc', '500+0', '5+999', '0+0', '5+-1', '5', '5+3+1']) {
+    assert.equal(await g.errorOf(a.socket, 'queue.join', { timeControl: bad }), 'INVALID_TIME_CONTROL', bad);
+  }
   assert.equal(await g.errorOf(a.socket, 'queue.join', { timeControl: 5 }), 'INVALID_PAYLOAD');
   assert.equal(await g.errorOf(a.socket, 'queue.join', {}), 'INVALID_PAYLOAD');
 });

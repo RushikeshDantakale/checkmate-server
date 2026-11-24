@@ -16,6 +16,7 @@ const registry = require('../../websocket/registry');
 const friends = require('../friends/friends.service');
 const games = require('../games/games.service');
 const { parseTimeControl } = require('../games/timeControl');
+const { DEFAULT_VARIANT, isValidVariant } = require('../games/variants');
 
 const QUEUE_TTL_MS = 10 * 60 * 1000;
 
@@ -35,8 +36,11 @@ async function ensureFree(userId) {
   }
 }
 
+/** Validates a time control id and returns its normalised form ("05+03" -> "5+3"), so equal controls pair. */
 function requireTimeControl(id) {
-  if (!parseTimeControl(id)) throw new AppError(400, 'INVALID_TIME_CONTROL', 'Unknown time control');
+  const tc = parseTimeControl(id);
+  if (!tc) throw new AppError(400, 'INVALID_TIME_CONTROL', 'Invalid time control (use "<minutes>+<increment seconds>", e.g. "5+3")');
+  return tc.id;
 }
 
 function randomColors(a, b) {
@@ -45,8 +49,10 @@ function randomColors(a, b) {
 
 // ---------------------------------------------------------------- queue
 
-async function joinQueue(userId, timeControlId, rated) {
-  requireTimeControl(timeControlId);
+async function joinQueue(userId, rawTimeControlId, rated, variant = DEFAULT_VARIANT) {
+  const timeControlId = requireTimeControl(rawTimeControlId);
+  if (!isValidVariant(variant)) throw new AppError(400, 'INVALID_VARIANT', 'Unknown game variant');
+  if (variant !== DEFAULT_VARIANT) rated = false; // variants never touch the standard rating (D-062)
   await games.withDb(async () => {
     await ensureFree(userId);
     const user = await User.findById(userId).select('rating').lean();
@@ -57,6 +63,7 @@ async function joinQueue(userId, timeControlId, rated) {
         $set: {
           timeControlId,
           rated,
+          variant,
           rating: (user && user.rating) ?? config.game.startingRating,
           joinedAt: now,
           expiresAt: new Date(now.getTime() + QUEUE_TTL_MS),
@@ -70,7 +77,7 @@ async function joinQueue(userId, timeControlId, rated) {
   } catch (err) {
     logger.warn({ reason: err.message }, 'matchmaking attempt failed'); // the periodic tick retries
   }
-  return { queued: true, timeControlId, rated };
+  return { queued: true, timeControlId, rated, variant };
 }
 
 async function leaveQueue(userId) {
@@ -96,6 +103,7 @@ function tryMatch() {
         const bId = String(b.userId);
         if (bId === aId || used.has(bId) || !registry.isOnline(bId)) continue;
         if (b.timeControlId !== a.timeControlId || b.rated !== a.rated) continue;
+        if ((b.variant || DEFAULT_VARIANT) !== (a.variant || DEFAULT_VARIANT)) continue;
         const waited = (Date.now() - Math.min(a.joinedAt.getTime(), b.joinedAt.getTime())) / 1000;
         const window = config.game.ratingWindowBase + config.game.ratingWindowPerSecond * waited;
         if (Math.abs(a.rating - b.rating) > window) continue;
@@ -107,7 +115,7 @@ function tryMatch() {
           // B left meanwhile: put A back.
           await MatchmakingEntry.updateOne(
             { userId: a.userId },
-            { $setOnInsert: { timeControlId: a.timeControlId, rated: a.rated, rating: a.rating, joinedAt: a.joinedAt, expiresAt: a.expiresAt } },
+            { $setOnInsert: { timeControlId: a.timeControlId, rated: a.rated, variant: a.variant || DEFAULT_VARIANT, rating: a.rating, joinedAt: a.joinedAt, expiresAt: a.expiresAt } },
             { upsert: true }
           );
           continue;
@@ -115,7 +123,12 @@ function tryMatch() {
         used.add(aId);
         used.add(bId);
         try {
-          await games.createGame({ ...randomColors(a.userId, b.userId), timeControlId: a.timeControlId, rated: a.rated });
+          await games.createGame({
+            ...randomColors(a.userId, b.userId),
+            timeControlId: a.timeControlId,
+            rated: a.rated,
+            variant: a.variant || DEFAULT_VARIANT,
+          });
           created += 1;
         } catch (err) {
           logger.warn({ reason: err.message }, 'could not create matched game');
@@ -130,9 +143,11 @@ function tryMatch() {
 
 // ---------------------------------------------------------------- invitations
 
-async function sendInvite(fromId, toUserId, timeControlId, rated) {
+async function sendInvite(fromId, toUserId, rawTimeControlId, rated, variant = DEFAULT_VARIANT) {
   requireObjectId(toUserId, 'userId');
-  requireTimeControl(timeControlId);
+  const timeControlId = requireTimeControl(rawTimeControlId);
+  if (!isValidVariant(variant)) throw new AppError(400, 'INVALID_VARIANT', 'Unknown game variant');
+  if (variant !== DEFAULT_VARIANT) rated = false; // variants never touch the standard rating (D-062)
   if (String(fromId) === String(toUserId)) throw new AppError(400, 'INVALID_OPPONENT', 'Cannot invite yourself');
   return games.withDb(async () => {
     if (!(await friends.areFriends(fromId, toUserId))) {
@@ -148,6 +163,7 @@ async function sendInvite(fromId, toUserId, timeControlId, rated) {
       toId: toUserId,
       timeControlId,
       rated,
+      variant,
       expiresAt: new Date(Date.now() + config.game.inviteTtlMs),
     });
     const from = await User.findById(fromId).select('username').lean();
@@ -156,6 +172,7 @@ async function sendInvite(fromId, toUserId, timeControlId, rated) {
       from: { id: String(fromId), username: from.username },
       timeControlId,
       rated,
+      variant,
       expiresAt: invite.expiresAt.toISOString(),
     });
     return { inviteId: String(invite._id), expiresAt: invite.expiresAt.toISOString() };
@@ -184,6 +201,7 @@ function acceptInvite(userId, inviteId) {
           ...randomColors(invite.fromId, userId),
           timeControlId: invite.timeControlId,
           rated: invite.rated,
+          variant: invite.variant || DEFAULT_VARIANT,
         });
       } catch (err) {
         await Invitation.updateOne({ _id: inviteId }, { $set: { status: 'cancelled' } });

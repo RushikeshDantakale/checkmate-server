@@ -64,14 +64,14 @@ All events below need an authenticated socket (otherwise `UNAUTHENTICATED`). Req
 
 | Event | Payload | Reply |
 |---|---|---|
-| `queue.join` | `{ timeControl, rated? = true }` | `queue.joined { queued, timeControlId, rated }` |
+| `queue.join` | `{ timeControl, rated? = true, variant? = "standard" }`. `variant` is `standard`, `dice` or `chess960` and is optional (older clients omit it). Players are only paired with the same time control, the same `rated` value AND the same variant; a non-standard variant is always unrated (`rated` is forced to `false` and the reply says so). Unknown variant: `INVALID_PAYLOAD`. | `queue.joined { queued, timeControlId, rated, variant }` |
 | `queue.leave` | `{}` | `queue.left { left: true }` |
-| `invite.send` | `{ userId, timeControl, rated? = false }` (friends only, friend must be online) | `invite.sent { inviteId, expiresAt }` |
+| `invite.send` | `{ userId, timeControl, rated? = false, variant? = "standard" }` (friends only, friend must be online). `variant` is `standard`, `dice` or `chess960`; non-standard variants are always unrated. The friend receives `invite.received { ..., variant }` and both players get `game.started` with `game.variant` and `game.startFen` (see "Game variants" below). Unknown variant: `INVALID_PAYLOAD`. | `invite.sent { inviteId, expiresAt }` |
 | `invite.accept` | `{ inviteId }` | `invite.accepted { gameId }` |
 | `invite.decline` | `{ inviteId }` | `invite.declined { status }` |
 | `invite.cancel` | `{ inviteId }` | `invite.cancelled { status }` |
 
-Time controls: `1+0`, `3+0`, `3+2`, `5+0`, `5+3`, `10+0`, `15+10`, `30+0` (D-026). Rating window: 100 + 20 per second waited (D-023). A queue entry is removed when the user disconnects and expires after 10 minutes. Invitations expire after 60 s; a new invitation replaces the sender's old one.
+Time controls are dynamic (D-063): the app sends any id `"<minutes>+<increment seconds>"` (`5+3`, `2+1`, `0.5+0`, `45+15`); the server accepts base 10 s to 180 min and increment 0 to 180 s, normalises the id (`05+03` becomes `5+3`) and returns that id in `timeControlId` / `game.timeControl.id`. Anything else: `INVALID_TIME_CONTROL`. New controls in the app need no server change; the queue pairs only equal normalised ids, so very unusual controls may wait longer. Rating window: 100 + 20 per second waited (D-023). A queue entry is removed when the user disconnects and expires after 10 minutes. Invitations expire after 60 s; a new invitation replaces the sender's old one.
 
 ## Client -> server: game
 
@@ -105,7 +105,7 @@ Server checks per move, in order: game exists and caller is a player (else `GAME
 | `game.session.replaced` | `{ gameId }` | Another device of yours joined the game; this device can no longer play. |
 | `game.draw.offered` | `{ gameId, by }` | Opponent offers a draw. An offer is cancelled by any move. |
 | `game.draw.declined` | `{ gameId }` | Opponent declined. |
-| `invite.received` | `{ inviteId, from: { id, username }, timeControlId, rated, expiresAt }` | A friend invited you. |
+| `invite.received` | `{ inviteId, from: { id, username }, timeControlId, rated, variant, expiresAt }` | A friend invited you. |
 | `invite.updated` | `{ inviteId, status, gameId? }` | Your invitation was accepted (with `gameId`), declined or cancelled. |
 | `queue.cancelled` | `{ reason }` | Pairing succeeded but the game could not be created; join the queue again. |
 
@@ -114,6 +114,18 @@ Server checks per move, in order: game exists and caller is a player (else `GAME
 ## Game error codes
 
 `INVALID_PAYLOAD`, `GAME_NOT_FOUND` (also for other people's games), `SESSION_REPLACED`, `NOT_YOUR_TURN`, `STALE_SEQ`, `INVALID_POSITION`, `INVALID_OUTCOME`, `DUPLICATE_MOVE_ID` (moveId used by the other player), `GAME_OVER`, `GAME_PAUSED`, `CONFLICT` (retry), `DRAW_OFFER_PENDING`, `NO_DRAW_OFFER`, `INVALID_TIME_CONTROL`, `ALREADY_IN_GAME`, `INVALID_OPPONENT`, `ACCOUNT_NOT_ACTIVE`, `USER_NOT_FOUND`, `NOT_FRIENDS`, `USER_OFFLINE`, `INVITE_NOT_FOUND`, `TEMPORARILY_UNAVAILABLE` (database problem: the request was NOT applied; retry the same request with the same `moveId`).
+
+## Game variants (D-062)
+
+Every game object has `variant` (`standard`, `dice` or `chess960`) and `startFen`, the position the game began from. A variant is chosen with `queue.join` or `invite.send` (field `variant`, default `standard`) and both players always see the same value in `game.started`.
+
+- **Rules are on the phones.** The server does not check move legality (D-021), so it stores and announces the variant and nothing else. `standard` and `dice` start from the normal position. In `dice` the mover's phone rolls the die and only lets that piece type move; the opponent just receives the move, so nothing about the die is sent.
+- **`chess960`**: the SERVER shuffles the start position once, so both phones begin identically. Set the board up from `game.startFen` (it equals `game.fen` at the start). The castling field is always `KQkq` in X-FEN style: `K`/`Q` mean the rook on the king's right/left side, which is not always on the h/a file, so a Chess960 client must find the real rook files from the back rank itself.
+- **Replaying moves**: `game.fen` is the CURRENT position. After a reconnect, rebuild the board by starting from `startFen` and applying `moves`, never from the normal start position. For games stored before variants existed `startFen` is the normal start FEN.
+- **Never rated**: for `dice` and `chess960` the server forces `rated: false`, so no rating changes and `game.over.ratingChange` is `null`.
+- **Pairing**: the queue only pairs players with the same time control, same `rated` value and same variant.
+- **PGN**: `chess960` games have `[Variant "Chess960"]`, `[SetUp "1"]` and `[FEN "<startFen>"]`; `dice` games have `[Variant "Dice Chess"]`.
+- An unknown variant is refused with `INVALID_PAYLOAD`.
 
 ## Game reconnect procedure (client)
 

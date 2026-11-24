@@ -68,7 +68,7 @@ A game the caller played (any status), or a COMPLETED game (`finished` or `abort
 ### GET /:id/pgn
 `{ "pgn": "..." }`. `409 GAME_NOT_FINISHED` while the game is still live. Same access rule as `GET /:id`; 404 otherwise.
 
-Game object: `{ id, white: {id, username, rating}, black: {...}, variant: "standard", rated, timeControl: {id, baseMs, incrementMs}, status, result, resultReason, fen, turn: "w"|"b", seq, clocks: {whiteMs, blackMs, running}, drawOffer: {by}|null, ratingChange: {white, black}|null, serverTime, moves?, pgn?, movesCompacted? }` (`movesCompacted` is only present, as `true`, for old games whose move list was removed). `status`: `active`, `paused_disconnect`, `paused_server_recovery`, `finished`, `aborted`. `503 TEMPORARILY_UNAVAILABLE` means the database is down; retry.
+Game object: `{ id, white: {id, username, rating}, black: {...}, variant: "standard"|"dice"|"chess960", startFen, rated, timeControl: {id, baseMs, incrementMs}, status, result, resultReason, fen, turn: "w"|"b", seq, clocks: {whiteMs, blackMs, running}, drawOffer: {by}|null, ratingChange: {white, black}|null, serverTime, moves?, pgn?, movesCompacted? }` (`movesCompacted` is only present, as `true`, for old games whose move list was removed). `status`: `active`, `paused_disconnect`, `paused_server_recovery`, `finished`, `aborted`. `503 TEMPORARILY_UNAVAILABLE` means the database is down; retry.
 
 Route order matters for clients only in one way: `/active` and `/live` are fixed paths, everything else is a game id.
 
@@ -186,7 +186,7 @@ Rules in short:
 Tournament summary: `{ id, name, host: { id, username }, status: "registration"|"running"|"finished"|"cancelled", timeControl, rated, entryFee, maxPlayers, playerCount, startsAt, rounds: number | null, currentRound, joined: boolean, createdAt }`.
 
 ### POST /
-Body: `{ "name": 3-40 characters, "timeControl": "<preset id, e.g. 5+0>", "rated": boolean (default true), "entryFee": 0-500 (default 0), "maxPlayers": 4-32 (default 16), "rounds": 1-31 (optional), "startsAt": ISO 8601 date with offset }`. `201 { "tournament": summary }`.
+Body: `{ "name": 3-40 characters, "timeControl": "<time control id, e.g. 5+0 or 10+5, see D-063>", "rated": boolean (default true), "entryFee": 0-500 (default 0), "maxPlayers": 4-32 (default 16), "rounds": 1-31 (optional), "startsAt": ISO 8601 date with offset }`. `201 { "tournament": summary }`.
 Errors: `400 VALIDATION_ERROR`, `400 INVALID_TIME_CONTROL`, `400 INVALID_ROUNDS` (more than `maxPlayers - 1`), `400 INVALID_START_TIME` (sooner than 60 s or later than 7 days), `403 ACCOUNT_NOT_ACTIVE`, `409 TOURNAMENT_LIMIT` (you already host the maximum number of open tournaments: 1 by default; cancelling or finishing one frees the slot).
 
 ### GET /

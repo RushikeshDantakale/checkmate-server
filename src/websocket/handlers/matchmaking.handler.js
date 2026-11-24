@@ -8,8 +8,15 @@ const matchmaking = require('../../modules/matchmaking/matchmaking.service');
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'must be a valid id');
 const timeControl = z.string().max(16);
 
-const queueJoin = z.object({ timeControl, rated: z.boolean().default(true) });
-const inviteSend = z.object({ userId: objectId, timeControl, rated: z.boolean().default(false) });
+const variant = z.enum(['standard', 'dice', 'chess960']).default('standard'); // optional: older clients omit it
+
+const queueJoin = z.object({ timeControl, rated: z.boolean().default(true), variant });
+const inviteSend = z.object({
+  userId: objectId,
+  timeControl,
+  rated: z.boolean().default(false),
+  variant,
+});
 const inviteRef = z.object({ inviteId: objectId });
 
 /** Matchmaking queue and friend invitations. A match start is announced with `game.started`. */
@@ -17,7 +24,7 @@ module.exports = {
   'queue.join': {
     requireAuth: true,
     handle: defineHandler(queueJoin, async ({ socket, id, data, userId }) => {
-      const result = await matchmaking.joinQueue(userId, data.timeControl, data.rated);
+      const result = await matchmaking.joinQueue(userId, data.timeControl, data.rated, data.variant);
       send(socket, 'queue.joined', result, id);
     }, { rateLimit: { key: 'queue.join', limit: 10, windowMs: 10000 } }),
   },
@@ -30,7 +37,7 @@ module.exports = {
   'invite.send': {
     requireAuth: true,
     handle: defineHandler(inviteSend, async ({ socket, id, data, userId }) => {
-      const result = await matchmaking.sendInvite(userId, data.userId, data.timeControl, data.rated);
+      const result = await matchmaking.sendInvite(userId, data.userId, data.timeControl, data.rated, data.variant);
       send(socket, 'invite.sent', result, id);
     }, { rateLimit: { key: 'invite.send', limit: 10, windowMs: 10000 } }),
   },

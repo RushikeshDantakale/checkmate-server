@@ -42,7 +42,7 @@ async function listHistory(userId, { limit, cursor }) {
     if (cursor) filter._id = { $lt: cursor };
     const rows = await Game.find(filter)
       .select(
-        'whiteId blackId whiteName blackName whiteRating blackRating rated timeControl status result resultReason seq ratingChange startedAt endedAt'
+        'whiteId blackId whiteName blackName whiteRating blackRating variant rated timeControl status result resultReason seq ratingChange startedAt endedAt'
       )
       .sort({ _id: -1 })
       .limit(limit + 1)

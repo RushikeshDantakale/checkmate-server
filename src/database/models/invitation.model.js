@@ -11,6 +11,7 @@ const invitationSchema = new mongoose.Schema(
     toId: { type: ObjectId, ref: 'User', required: true },
     timeControlId: { type: String, required: true },
     rated: { type: Boolean, default: false },
+    variant: { type: String, enum: ['standard', 'dice', 'chess960'], default: 'standard' },
     status: {
       type: String,
       enum: ['pending', 'accepted', 'declined', 'cancelled'],

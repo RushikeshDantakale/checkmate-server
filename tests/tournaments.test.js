@@ -118,7 +118,7 @@ test('creating a tournament validates every field', async () => {
   await bad({ entryFee: -1 }, 400, 'VALIDATION_ERROR');
   await bad({ entryFee: 1.5 }, 400, 'VALIDATION_ERROR');
   await bad({ startsAt: 'tomorrow' }, 400, 'VALIDATION_ERROR');
-  await bad({ timeControl: '7+7' }, 400, 'INVALID_TIME_CONTROL');
+  await bad({ timeControl: '7+999' }, 400, 'INVALID_TIME_CONTROL');
   await bad({ startsAt: soon(-60000) }, 400, 'INVALID_START_TIME');
   await bad({ startsAt: soon(8 * 24 * 3600 * 1000) }, 400, 'INVALID_START_TIME');
   await bad({ maxPlayers: 4, rounds: 4 }, 400, 'INVALID_ROUNDS');

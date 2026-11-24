@@ -52,7 +52,7 @@ displayName (<=30), bio (<=160), avatarId, lastSeenAt.
 # Phase 3 collections
 
 ## games
-One document per game holds everything needed to restore it (D-011): `whiteId`, `blackId`, denormalised names and ratings, `variant`, `rated`, `timeControl {id, baseMs, incrementMs}`, `status`, `result`, `resultReason`, `fen`, `turn`, `seq` (last confirmed ply), `moves[] {seq, uci, san, moveId, by, at, whiteMs, blackMs}`, `clocks {whiteMs, blackMs, turnStartedAt}`, `drawOffer {by, atSeq}`, `pgn`, `ratingApplied`, `ratingChange {white, black}`, `startedAt`, `endedAt`, `pausedAt`, timestamps.
+One document per game holds everything needed to restore it (D-011): `whiteId`, `blackId`, denormalised names and ratings, `variant` (`standard`|`dice`|`chess960`, D-062), `startFen` (the position the game began from: the shuffled one for chess960; absent on games made before variants, read as the normal start), `rated`, `timeControl {id, baseMs, incrementMs}`, `status`, `result`, `resultReason`, `fen`, `turn`, `seq` (last confirmed ply), `moves[] {seq, uci, san, moveId, by, at, whiteMs, blackMs}`, `clocks {whiteMs, blackMs, turnStartedAt}`, `drawOffer {by, atSeq}`, `pgn`, `ratingApplied`, `ratingChange {white, black}`, `startedAt`, `endedAt`, `pausedAt`, timestamps.
 - Clock model: `clocks.whiteMs/blackMs` are the remaining times AT `clocks.turnStartedAt`. While active, the side to move has `stored - (now - turnStartedAt)`. While paused or finished `turnStartedAt` is null and the values are frozen.
 - Every state change is one conditional `updateOne` (status, seq, turn and "moveId not yet stored" must match). Checkpoints (every 5 s) rebase the running clock with a pipeline update (`updatePipeline: true` is required by Mongoose 9).
 - Indexes: `{whiteId, status}`, `{blackId, status}`, `{status}`, `{whiteId, _id:-1}`, `{blackId, _id:-1}` (history, Phase 6).
@@ -65,10 +65,10 @@ One document per game holds everything needed to restore it (D-011): `whiteId`, 
 Append-only audit trail (`gameId`, `type`, `userId`, `data`, `at`): started, paused, resumed, disconnected, reconnected, resign, draw_offered, recovered_after_outage, finished. Best effort: never blocks play. TTL 90 days on `at`. Index `{gameId, _id}`.
 
 ## matchmaking_queue
-One entry per waiting user (unique `userId`): `timeControlId`, `rated`, `rating`, `joinedAt`, `expiresAt`. TTL index removes entries after 10 minutes, so a crash can never leave someone queued. Index `{timeControlId, rated, joinedAt}`.
+One entry per waiting user (unique `userId`): `timeControlId`, `rated`, `variant` (D-062; missing on old entries = standard), `rating`, `joinedAt`, `expiresAt`. TTL index removes entries after 10 minutes, so a crash can never leave someone queued. Index `{timeControlId, rated, variant, joinedAt}` (the older index `{timeControlId, rated, joinedAt}` may still exist on databases created before variants; it is harmless and can be dropped).
 
 ## invitations
-`fromId`, `toId`, `timeControlId`, `rated`, `status` (pending, accepted, declined, cancelled), `gameId`, `expiresAt` (60 s). Documents are deleted 1 hour after expiry (TTL). Indexes `{toId, status, expiresAt}`, `{fromId, status}`.
+`fromId`, `toId`, `timeControlId`, `rated`, `variant` (D-062), `status` (pending, accepted, declined, cancelled), `gameId`, `expiresAt` (60 s). Documents are deleted 1 hour after expiry (TTL). Indexes `{toId, status, expiresAt}`, `{fromId, status}`.
 
 ## users (Phase 3 addition)
 `rating` (Elo, default 1200, floor 100, K=32, applied once per rated finished game, D-022).

@@ -43,7 +43,9 @@ const gameSchema = new mongoose.Schema(
     blackName: { type: String, required: true },
     whiteRating: { type: Number, required: true },
     blackRating: { type: Number, required: true },
-    variant: { type: String, enum: ['standard'], default: 'standard' },
+    variant: { type: String, enum: ['standard', 'dice', 'chess960'], default: 'standard' },
+    // Position the game started from (differs from the normal start only for Chess960). Used for the PGN.
+    startFen: { type: String },
     rated: { type: Boolean, default: true },
     timeControl: {
       id: { type: String, required: true },

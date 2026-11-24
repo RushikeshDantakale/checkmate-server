@@ -21,6 +21,7 @@ const registry = require('../../websocket/registry');
 const { send } = require('../../websocket/messaging');
 const { buildPgn } = require('./pgn');
 const { parseTimeControl } = require('./timeControl');
+const { DEFAULT_VARIANT, isValidVariant, randomChess960Fen } = require('./variants');
 
 const LIVE = Game.LIVE_STATUSES;
 const PAUSED = ['paused_disconnect', 'paused_server_recovery'];
@@ -71,6 +72,9 @@ function view(game, { withMoves = false, now = Date.now() } = {}) {
     white: { id: String(game.whiteId), username: game.whiteName, rating: game.whiteRating },
     black: { id: String(game.blackId), username: game.blackName, rating: game.blackRating },
     variant: game.variant,
+    // Position the game started from. Chess960 starts from a shuffled position, so a client that replays
+    // `moves` (reconnect, review) must start from this FEN, not from the normal start (D-062).
+    startFen: game.startFen || Game.START_FEN,
     rated: game.rated,
     timeControl: { id: game.timeControl.id, baseMs: game.timeControl.baseMs, incrementMs: game.timeControl.incrementMs },
     status: game.status,
@@ -195,10 +199,14 @@ async function getActiveGameView(userId) {
 // ---------------------------------------------------------------- create
 
 /** Creates a game and tells both players. Callers (matchmaking) hold the match lock. */
-async function createGame({ whiteId, blackId, timeControlId, rated, tournament }) {
+async function createGame({ whiteId, blackId, timeControlId, rated, tournament, variant }) {
   const tc = parseTimeControl(timeControlId);
   if (!tc) throw new AppError(400, 'INVALID_TIME_CONTROL', 'Unknown time control');
   if (String(whiteId) === String(blackId)) throw new AppError(400, 'INVALID_OPPONENT', 'Cannot play yourself');
+  const gameVariant = variant || DEFAULT_VARIANT;
+  if (!isValidVariant(gameVariant)) throw new AppError(400, 'INVALID_VARIANT', 'Unknown game variant');
+  // Chess960: the server picks the shuffled start position once, so both phones start identically.
+  const startFen = gameVariant === 'chess960' ? randomChess960Fen() : Game.START_FEN;
 
   return withDb(async () => {
     const users = await User.find({ _id: { $in: [whiteId, blackId] } }).select('username rating status').lean();
@@ -221,6 +229,9 @@ async function createGame({ whiteId, blackId, timeControlId, rated, tournament }
         whiteRating: w.rating ?? config.game.startingRating,
         blackRating: b.rating ?? config.game.startingRating,
         rated: Boolean(rated),
+        variant: gameVariant,
+        fen: startFen,
+        startFen,
         timeControl: tc,
         clocks: { whiteMs: tc.baseMs, blackMs: tc.baseMs, turnStartedAt: now },
         startedAt: now,
@@ -238,7 +249,7 @@ async function createGame({ whiteId, blackId, timeControlId, rated, tournament }
       throw err;
     }
     const game = doc.toObject();
-    logEvent(game._id, 'started', undefined, { timeControl: tc.id, rated: Boolean(rated) });
+    logEvent(game._id, 'started', undefined, { timeControl: tc.id, rated: Boolean(rated), variant: gameVariant });
     stateChanged(game);
     registry.sendToUser(whiteId, 'game.started', { game: view(game), yourColor: 'w' });
     registry.sendToUser(blackId, 'game.started', { game: view(game), yourColor: 'b' });
